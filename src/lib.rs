@@ -2,12 +2,18 @@ pub mod bindings;
 
 use std::fmt;
 
-const COLOR_COMPONENTS: usize = 3;
+#[repr(C)]
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Pixel {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
 
 pub struct Image {
     pub width: u32,
     pub height: u32,
-    pub data: Vec<u8>,
+    pub pixels: Vec<Pixel>,
 }
 
 impl fmt::Debug for Image {
@@ -38,8 +44,8 @@ pub fn decompress(compressed_image: &[u8]) -> Image {
         );
     }
 
-    let buf_len: usize = width as usize * height as usize * COLOR_COMPONENTS;
-    let mut buffer: Vec<u8> = Vec::with_capacity(buf_len);
+    let buf_len: usize = width as usize * height as usize;
+    let mut buffer: Vec<Pixel> = Vec::with_capacity(buf_len);
     unsafe { buffer.set_len(buf_len); }
 
     unsafe {
@@ -47,7 +53,7 @@ pub fn decompress(compressed_image: &[u8]) -> Image {
             decompressor,
             compressed_image.as_ptr(),
             compressed_image.len() as ::std::os::raw::c_ulong,
-            buffer.as_mut_ptr(),
+            buffer.as_mut_ptr() as *mut u8,
             width,
             0, // pitch
             height,
@@ -61,7 +67,7 @@ pub fn decompress(compressed_image: &[u8]) -> Image {
     Image {
         width: width as u32,
         height: height as u32,
-        data: buffer
+        pixels: buffer
     }
 }
 
@@ -70,9 +76,11 @@ mod tests {
     use super::*;
     use std::io::prelude::*;
     use std::fs::File;
+    use std::slice;
+    use std::mem;
 
     #[test]
-    fn test() {
+    fn test_decompress() {
         let mut jpeg = Vec::new();
         File::open("test/in.jpg").unwrap().read_to_end(&mut jpeg).unwrap();
         let image = decompress(&jpeg);
@@ -80,8 +88,13 @@ mod tests {
         assert_eq!(image.width, 75);
         assert_eq!(image.height, 50);
 
-        let mut expected_raw = Vec::new();
-        File::open("test/out.dat").unwrap().read_to_end(&mut expected_raw).unwrap();
-        assert_eq!(image.data, expected_raw);
+        let mut expected_uncompressed = Vec::new();
+        File::open("test/out.dat").unwrap().read_to_end(&mut expected_uncompressed).unwrap();
+        let expected_pixels = unsafe {
+            slice::from_raw_parts(
+                expected_uncompressed.as_ptr() as *const Pixel,
+                expected_uncompressed.len() / mem::size_of::<Pixel>())
+        };
+        assert_eq!(image.pixels[..], expected_pixels[..]);
     }
 }
