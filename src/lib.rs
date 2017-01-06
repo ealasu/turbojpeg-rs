@@ -11,8 +11,8 @@ pub struct Pixel {
 }
 
 pub struct Image {
-    pub width: u32,
-    pub height: u32,
+    pub width: usize,
+    pub height: usize,
     pub pixels: Vec<Pixel>,
 }
 
@@ -59,15 +59,39 @@ pub fn decompress(compressed_image: &[u8]) -> Image {
             height,
             bindings::TJPF::TJPF_RGB as ::std::os::raw::c_int,
             bindings::TJFLAG_FASTDCT as ::std::os::raw::c_int);
-    }
-    unsafe {
         bindings::tjDestroy(decompressor);
     }
 
     Image {
-        width: width as u32,
-        height: height as u32,
+        width: width as usize,
+        height: height as usize,
         pixels: buffer
+    }
+}
+
+pub fn compress(image: &Image) -> Vec<u8> {
+    let JPEG_QUALITY = 90;
+    let mut compressed_image: *mut u8 = std::ptr::null_mut();
+    let mut compressed_image_len: u64 = 0;
+    unsafe {
+        let jpeg_compressor = bindings::tjInitCompress();
+        bindings::tjCompress2(
+            jpeg_compressor,
+            (&image.pixels).as_ptr() as *const u8,
+            image.width as i32,
+            0,
+            image.height as i32,
+            bindings::TJPF::TJPF_RGB as ::std::os::raw::c_int,
+            &mut compressed_image,
+            &mut compressed_image_len,
+            bindings::TJSAMP::TJSAMP_444 as ::std::os::raw::c_int,
+            JPEG_QUALITY,
+            bindings::TJFLAG_FASTDCT as ::std::os::raw::c_int);
+        bindings::tjDestroy(jpeg_compressor);
+        Vec::from_raw_parts(
+            compressed_image,
+            compressed_image_len as usize,
+            compressed_image_len as usize)
     }
 }
 

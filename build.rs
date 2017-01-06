@@ -1,15 +1,18 @@
 use std::env;
+use std::fs;
 use std::process::Command;
 use std::path::Path;
 
 fn main() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let out_dir = env::var("OUT_DIR").unwrap();
+    let build_dir = Path::new(&out_dir).join("turbojpeg");
+    fs::create_dir_all(&build_dir).unwrap();
     let target = env::var("TARGET").unwrap();
     println!("target: {}", target);
     let src_dir = Path::new(manifest_dir).join("libjpeg-turbo");
 
-    let lib_file = Path::new(&out_dir).join(".libs").join("libturbojpeg.a");
+    let lib_file = Path::new(&build_dir).join(".libs").join("libturbojpeg.a");
     if lib_file.exists() {
         println!("already built.");
     } else { 
@@ -22,11 +25,11 @@ fn main() {
 
         let mut configure = Command::new("sh");
         configure.arg(src_dir.join("configure"));
-        configure.current_dir(&out_dir);
+        configure.current_dir(&build_dir);
         let mut cflags = "".to_string();
 
         let mut make = Command::new("make");
-        make.current_dir(&out_dir);
+        make.current_dir(&build_dir);
 
         if target == "armv7-unknown-linux-gnueabihf" {
             let toolchain = "arm-linux-gnueabihf";
@@ -71,6 +74,6 @@ fn main() {
         assert!(status.success());
     }
 
-    println!("cargo:rustc-link-search={}/.libs", out_dir);
-    println!("cargo:rustc-link-lib=turbojpeg");
+    println!("cargo:rustc-link-search={}/.libs", build_dir.to_string_lossy());
+    println!("cargo:rustc-link-lib=static=turbojpeg");
 }
