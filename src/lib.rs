@@ -70,9 +70,9 @@ pub fn decompress(compressed_image: &[u8]) -> Image {
 }
 
 pub fn compress(image: &Image) -> Vec<u8> {
-    let JPEG_QUALITY = 90;
+    let JPEG_QUALITY = 100;
     let mut compressed_image: *mut u8 = std::ptr::null_mut();
-    let mut compressed_image_len: u64 = 0;
+    let mut compressed_image_len: ::std::os::raw::c_ulong = 0;
     unsafe {
         let jpeg_compressor = bindings::tjInitCompress();
         bindings::tjCompress2(
