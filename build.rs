@@ -13,7 +13,8 @@ fn main() {
     let src_dir = Path::new(manifest_dir).join("libjpeg-turbo");
 
     let lib_file = Path::new(&build_dir).join(".libs").join("libturbojpeg.a");
-    if lib_file.exists() {
+    //if lib_file.exists() {
+    if true {
         println!("already built.");
     } else { 
         let status = Command::new("autoreconf")
@@ -74,6 +75,28 @@ fn main() {
         assert!(status.success());
     }
 
-    println!("cargo:rustc-link-search={}/.libs", build_dir.to_string_lossy());
+    print_lib_dir();
+    //println!("cargo:rustc-link-search={}/.libs", build_dir.to_string_lossy());
     println!("cargo:rustc-link-lib=static=turbojpeg");
+}
+
+#[cfg(not(target_os = "macos"))]
+fn print_lib_dir() {
+}
+
+#[cfg(target_os = "macos")]
+fn print_lib_dir() {
+    let lib_dir = Command::new("brew")
+        .arg("--prefix")
+        .arg("libjpeg-turbo")
+        //.arg("libtiff")
+        .output()
+        .ok()
+        .into_iter()
+        .filter(|output| output.status.success())
+        .flat_map(|output| String::from_utf8(output.stdout).ok())
+        .map(|output| format!("{}/lib", output.trim()))
+        .next()
+        .unwrap();
+    println!("cargo:rustc-link-search={}", lib_dir);
 }

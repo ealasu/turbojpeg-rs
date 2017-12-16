@@ -1,28 +1,14 @@
+#![feature(fs_read_write)]
+
+extern crate image;
+
 pub mod bindings;
 
-use std::fmt;
+use image::{Image, ImageDimensions, OwnedImage, Rgb};
 
-#[repr(C)]
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub struct Pixel {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-}
+pub type Pixel = Rgb<u8>;
 
-pub struct Image {
-    pub width: usize,
-    pub height: usize,
-    pub pixels: Vec<Pixel>,
-}
-
-impl fmt::Debug for Image {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[image {}x{}]", self.width, self.height)
-    }
-}
-
-pub fn decompress(compressed_image: &[u8]) -> Image {
+pub fn decompress(compressed_image: &[u8]) -> OwnedImage<Pixel> {
     let decompressor = unsafe {
         bindings::tjInitDecompress()
     };
@@ -44,16 +30,18 @@ pub fn decompress(compressed_image: &[u8]) -> Image {
         );
     }
 
-    let buf_len: usize = width as usize * height as usize;
-    let mut buffer: Vec<Pixel> = Vec::with_capacity(buf_len);
-    unsafe { buffer.set_len(buf_len); }
+    let buf_len = width as usize * height as usize;
+    let mut pixels: Vec<Pixel> = Vec::with_capacity(buf_len);
+    unsafe {
+        pixels.set_len(buf_len);
+    }
 
     unsafe {
         bindings::tjDecompress2(
             decompressor,
             compressed_image.as_ptr(),
             compressed_image.len() as ::std::os::raw::c_ulong,
-            buffer.as_mut_ptr() as *mut u8,
+            pixels.as_mut_ptr() as *mut u8,
             width,
             0, // pitch
             height,
@@ -62,63 +50,83 @@ pub fn decompress(compressed_image: &[u8]) -> Image {
         bindings::tjDestroy(decompressor);
     }
 
-    Image {
-        width: width as usize,
-        height: height as usize,
-        pixels: buffer
+    OwnedImage {
+        dimensions: ImageDimensions {
+            width: width as usize,
+            pitch: width as usize,
+            height: height as usize,
+        },
+        pixels: pixels
     }
 }
 
-pub fn compress(image: &Image) -> Vec<u8> {
-    let JPEG_QUALITY = 100;
-    let mut compressed_image: *mut u8 = std::ptr::null_mut();
-    let mut compressed_image_len: ::std::os::raw::c_ulong = 0;
+pub fn compress<I>(image: &I) -> Vec<u8> where I: Image<Pixel=Pixel> {
+    let subsamp = bindings::TJSAMP::TJSAMP_444 as ::std::os::raw::c_int;
+    let mut compressed_image_len: ::std::os::raw::c_ulong = unsafe {
+        bindings::tjBufSize(
+            image.dimensions().width as i32,
+            image.dimensions().height as i32,
+            subsamp)
+    };
+    let mut buf: Vec<u8> = Vec::with_capacity(compressed_image_len as usize);
+    let mut compressed_image: *mut u8 = buf.as_mut_ptr();
     unsafe {
         let jpeg_compressor = bindings::tjInitCompress();
         bindings::tjCompress2(
             jpeg_compressor,
-            (&image.pixels).as_ptr() as *const u8,
-            image.width as i32,
-            0,
-            image.height as i32,
+            (&image.pixels()).as_ptr() as *const u8,
+            image.dimensions().width as i32,
+            image.pitch_bytes() as i32,
+            image.dimensions().height as i32,
             bindings::TJPF::TJPF_RGB as ::std::os::raw::c_int,
             &mut compressed_image,
             &mut compressed_image_len,
-            bindings::TJSAMP::TJSAMP_444 as ::std::os::raw::c_int,
-            JPEG_QUALITY,
-            bindings::TJFLAG_FASTDCT as ::std::os::raw::c_int);
+            subsamp,
+            100, // quality
+            (bindings::TJFLAG_FASTDCT | bindings::TJFLAG_NOREALLOC) as ::std::os::raw::c_int);
         bindings::tjDestroy(jpeg_compressor);
-        Vec::from_raw_parts(
-            compressed_image,
-            compressed_image_len as usize,
-            compressed_image_len as usize)
+        buf.set_len(compressed_image_len as usize);
     }
+    buf.shrink_to_fit();
+    buf
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::prelude::*;
-    use std::fs::File;
-    use std::slice;
+    use std::fs;
     use std::mem;
+    use std::slice;
 
     #[test]
     fn test_decompress() {
-        let mut jpeg = Vec::new();
-        File::open("test/in.jpg").unwrap().read_to_end(&mut jpeg).unwrap();
+        let jpeg = fs::read("test/in.jpg").unwrap();
         let image = decompress(&jpeg);
-        println!("{:?}", image);
-        assert_eq!(image.width, 75);
-        assert_eq!(image.height, 50);
+        assert_eq!(image.dimensions.width, 75);
+        assert_eq!(image.dimensions.height, 50);
+        let expected = fs::read("test/out.dat").unwrap();
+        assert_eq!(image.as_bytes(), &expected[..]);
+    }
 
-        let mut expected_uncompressed = Vec::new();
-        File::open("test/out.dat").unwrap().read_to_end(&mut expected_uncompressed).unwrap();
-        let expected_pixels = unsafe {
+    #[test]
+    fn test_compress() {
+        let uncompressed = fs::read("test/out.dat").unwrap();
+        let uncompressed: Vec<Pixel> = unsafe {
             slice::from_raw_parts(
-                expected_uncompressed.as_ptr() as *const Pixel,
-                expected_uncompressed.len() / mem::size_of::<Pixel>())
+                uncompressed.as_ptr() as *const Pixel,
+                uncompressed.len() / mem::size_of::<Pixel>())
+        }.to_vec();
+        let image = OwnedImage {
+            dimensions: ImageDimensions {
+                width: 75,
+                pitch: 75,
+                height: 50,
+            },
+            pixels: uncompressed,
         };
-        assert_eq!(image.pixels[..], expected_pixels[..]);
+        let jpeg = compress(&image);
+        assert_eq!(jpeg.len(), 2512);
+        let expected = fs::read("test/out.jpg").unwrap();
+        assert_eq!(jpeg, expected);
     }
 }
