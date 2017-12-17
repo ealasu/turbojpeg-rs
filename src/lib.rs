@@ -19,7 +19,7 @@ pub fn decompress(compressed_image: &[u8]) -> OwnedImage<Pixel> {
     let mut colorspace = 0;
     
     unsafe {
-        bindings::tjDecompressHeader3(
+        let res = bindings::tjDecompressHeader3(
             decompressor,
             compressed_image.as_ptr(),
             compressed_image.len() as ::std::os::raw::c_ulong,
@@ -28,6 +28,7 @@ pub fn decompress(compressed_image: &[u8]) -> OwnedImage<Pixel> {
             &mut subsamp,
             &mut colorspace
         );
+        assert_eq!(res, 0);
     }
 
     let buf_len = width as usize * height as usize;
@@ -37,7 +38,7 @@ pub fn decompress(compressed_image: &[u8]) -> OwnedImage<Pixel> {
     }
 
     unsafe {
-        bindings::tjDecompress2(
+        let res = bindings::tjDecompress2(
             decompressor,
             compressed_image.as_ptr(),
             compressed_image.len() as ::std::os::raw::c_ulong,
@@ -47,7 +48,9 @@ pub fn decompress(compressed_image: &[u8]) -> OwnedImage<Pixel> {
             height,
             bindings::TJPF::TJPF_RGB as ::std::os::raw::c_int,
             bindings::TJFLAG_FASTDCT as ::std::os::raw::c_int);
-        bindings::tjDestroy(decompressor);
+        assert_eq!(res, 0);
+        let res = bindings::tjDestroy(decompressor);
+        assert_eq!(res, 0);
     }
 
     OwnedImage {
@@ -72,9 +75,9 @@ pub fn compress<I>(image: &I) -> Vec<u8> where I: Image<Pixel=Pixel> {
     let mut compressed_image: *mut u8 = buf.as_mut_ptr();
     unsafe {
         let jpeg_compressor = bindings::tjInitCompress();
-        bindings::tjCompress2(
+        let res = bindings::tjCompress2(
             jpeg_compressor,
-            (&image.pixels()).as_ptr() as *const u8,
+            image.as_bytes().as_ptr(),
             image.dimensions().width as i32,
             image.pitch_bytes() as i32,
             image.dimensions().height as i32,
@@ -84,7 +87,9 @@ pub fn compress<I>(image: &I) -> Vec<u8> where I: Image<Pixel=Pixel> {
             subsamp,
             100, // quality
             (bindings::TJFLAG_FASTDCT | bindings::TJFLAG_NOREALLOC) as ::std::os::raw::c_int);
-        bindings::tjDestroy(jpeg_compressor);
+        assert_eq!(res, 0);
+        let res = bindings::tjDestroy(jpeg_compressor);
+        assert_eq!(res, 0);
         buf.set_len(compressed_image_len as usize);
     }
     buf.shrink_to_fit();
