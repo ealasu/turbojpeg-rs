@@ -1,14 +1,18 @@
 #![feature(fs_read_write)]
 
+extern crate ndarray;
 extern crate image;
 
 pub mod bindings;
 
-use image::{Image, ImageDimensions, OwnedImage, Rgb};
+use std::mem;
+use std::slice;
+use ndarray::Array2;
+use image::Rgb;
 
 pub type Pixel = Rgb<u8>;
 
-pub fn decompress(compressed_image: &[u8]) -> OwnedImage<Pixel> {
+pub fn decompress(compressed_image: &[u8]) -> Result<Array2<Pixel>, ()> {
     let decompressor = unsafe {
         bindings::tjInitDecompress()
     };
@@ -53,22 +57,27 @@ pub fn decompress(compressed_image: &[u8]) -> OwnedImage<Pixel> {
         assert_eq!(res, 0);
     }
 
-    OwnedImage {
-        dimensions: ImageDimensions {
-            width: width as usize,
-            pitch: width as usize,
-            height: height as usize,
-        },
-        pixels: pixels
+    Ok(Array2::from_shape_vec((height as usize, width as usize), pixels).unwrap())
+}
+
+
+fn slice_as_bytes<T>(slice: &[T]) -> &[u8] {
+    unsafe {
+        slice::from_raw_parts(
+            slice.as_ptr() as *const u8,
+            slice.len() * mem::size_of::<T>())
     }
 }
 
-pub fn compress<I>(image: &I) -> Vec<u8> where I: Image<Pixel=Pixel> {
+pub fn compress(image: &Array2<Pixel>) -> Result<Vec<u8>, ()> {
     let subsamp = bindings::TJSAMP::TJSAMP_444 as ::std::os::raw::c_int;
+    let height = image.shape()[0];
+    let width = image.shape()[1];
+    let pitch_bytes = width * mem::size_of::<Pixel>();
     let mut compressed_image_len: ::std::os::raw::c_ulong = unsafe {
         bindings::tjBufSize(
-            image.dimensions().width as i32,
-            image.dimensions().height as i32,
+            width as i32,
+            height as i32,
             subsamp)
     };
     let mut buf: Vec<u8> = Vec::with_capacity(compressed_image_len as usize);
@@ -77,10 +86,10 @@ pub fn compress<I>(image: &I) -> Vec<u8> where I: Image<Pixel=Pixel> {
         let jpeg_compressor = bindings::tjInitCompress();
         let res = bindings::tjCompress2(
             jpeg_compressor,
-            image.as_bytes().as_ptr(),
-            image.dimensions().width as i32,
-            image.pitch_bytes() as i32,
-            image.dimensions().height as i32,
+            slice_as_bytes(image.view().into_slice().unwrap()).as_ptr(),
+            width as i32,
+            pitch_bytes as i32,
+            height as i32,
             bindings::TJPF::TJPF_RGB as ::std::os::raw::c_int,
             &mut compressed_image,
             &mut compressed_image_len,
@@ -93,7 +102,7 @@ pub fn compress<I>(image: &I) -> Vec<u8> where I: Image<Pixel=Pixel> {
         buf.set_len(compressed_image_len as usize);
     }
     buf.shrink_to_fit();
-    buf
+    Ok(buf)
 }
 
 #[cfg(test)]
@@ -106,13 +115,13 @@ mod tests {
     #[test]
     fn test_decompress() {
         let jpeg = fs::read("test/in.jpg").unwrap();
-        let image = decompress(&jpeg);
-        assert_eq!(image.dimensions.width, 75);
-        assert_eq!(image.dimensions.height, 50);
-        assert_eq!(*image.pixel_at(1, 10), Rgb { r: 189, g: 134, b: 95});
-        assert_eq!(*image.pixel_at(20, 1), Rgb { r: 203, g: 149, b: 103});
+        let image = decompress(&jpeg).unwrap();
+        assert_eq!(image.shape()[1], 75);
+        assert_eq!(image.shape()[0], 50);
+        assert_eq!(image[[10, 1]], Rgb { r: 189, g: 134, b: 95});
+        assert_eq!(image[[1, 20]], Rgb { r: 203, g: 149, b: 103});
         let expected = fs::read("test/out.dat").unwrap();
-        assert_eq!(image.as_bytes(), &expected[..]);
+        assert_eq!(slice_as_bytes(image.view().into_slice().unwrap()), &expected[..]);
     }
 
     #[test]
@@ -123,15 +132,8 @@ mod tests {
                 uncompressed.as_ptr() as *const Pixel,
                 uncompressed.len() / mem::size_of::<Pixel>())
         }.to_vec();
-        let image = OwnedImage {
-            dimensions: ImageDimensions {
-                width: 75,
-                pitch: 75,
-                height: 50,
-            },
-            pixels: uncompressed,
-        };
-        let jpeg = compress(&image);
+        let image = Array2::from_shape_vec((50, 75), uncompressed).unwrap();
+        let jpeg = compress(&image).unwrap();
         assert_eq!(jpeg.len(), 2512);
         let expected = fs::read("test/out.jpg").unwrap();
         assert_eq!(jpeg, expected);

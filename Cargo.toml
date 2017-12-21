@@ -5,3 +5,4 @@ build = "build.rs"
 
 [dependencies]
 image = { path = "../image-tools/image" }
+ndarray = "0.10"
