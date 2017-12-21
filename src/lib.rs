@@ -109,6 +109,8 @@ mod tests {
         let image = decompress(&jpeg);
         assert_eq!(image.dimensions.width, 75);
         assert_eq!(image.dimensions.height, 50);
+        assert_eq!(*image.pixel_at(1, 10), Rgb { r: 189, g: 134, b: 95});
+        assert_eq!(*image.pixel_at(20, 1), Rgb { r: 203, g: 149, b: 103});
         let expected = fs::read("test/out.dat").unwrap();
         assert_eq!(image.as_bytes(), &expected[..]);
     }
