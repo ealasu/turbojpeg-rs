@@ -13,8 +13,7 @@ fn main() {
     let src_dir = Path::new(manifest_dir).join("libjpeg-turbo");
 
     let lib_file = Path::new(&build_dir).join(".libs").join("libturbojpeg.a");
-    //if lib_file.exists() {
-    if true {
+    if lib_file.exists() {
         println!("already built.");
     } else { 
         let status = Command::new("autoreconf")
