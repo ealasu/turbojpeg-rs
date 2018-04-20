@@ -1,4 +1,4 @@
-#![feature(fs_read_write)]
+#![cfg_attr(test, feature(fs_read_write))]
 
 extern crate ndarray;
 //extern crate image;
