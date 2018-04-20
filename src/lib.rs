@@ -1,16 +1,22 @@
 #![feature(fs_read_write)]
 
 extern crate ndarray;
-extern crate image;
+//extern crate image;
 
 pub mod bindings;
 
 use std::mem;
 use std::slice;
 use ndarray::Array2;
-use image::Rgb;
+//use image::Rgb;
 
-pub type Pixel = Rgb<u8>;
+//pub type Pixel = Rgb<u8>;
+#[derive(Copy, Clone, PartialEq, Default, Debug)]
+pub struct Pixel {
+    r: u8,
+    g: u8,
+    b: u8,
+}
 
 pub fn decompress(compressed_image: &[u8]) -> Result<Array2<Pixel>, ()> {
     let decompressor = unsafe {
@@ -118,8 +124,8 @@ mod tests {
         let image = decompress(&jpeg).unwrap();
         assert_eq!(image.shape()[1], 75);
         assert_eq!(image.shape()[0], 50);
-        assert_eq!(image[[10, 1]], Rgb { r: 189, g: 134, b: 95});
-        assert_eq!(image[[1, 20]], Rgb { r: 203, g: 149, b: 103});
+        assert_eq!(image[[10, 1]], Pixel { r: 189, g: 134, b: 95});
+        assert_eq!(image[[1, 20]], Pixel { r: 203, g: 149, b: 103});
         let expected = fs::read("test/out.dat").unwrap();
         assert_eq!(slice_as_bytes(image.view().into_slice().unwrap()), &expected[..]);
     }
