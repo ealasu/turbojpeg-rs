@@ -3,3 +3,5 @@ addons:
   apt:
     packages:
       - libjpeg-turbo8-dev
+env:
+  - PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
