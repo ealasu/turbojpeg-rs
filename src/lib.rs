@@ -8,9 +8,9 @@ use ndarray::Array2;
 
 #[derive(Copy, Clone, PartialEq, Default, Debug)]
 pub struct Pixel {
-    r: u8,
-    g: u8,
-    b: u8,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
 }
 
 pub fn decompress(compressed_image: &[u8]) -> Result<Array2<Pixel>, ()> {
