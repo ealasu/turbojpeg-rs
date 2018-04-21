@@ -1,16 +1,11 @@
-#![cfg_attr(test, feature(fs_read_write))]
-
 extern crate ndarray;
-//extern crate image;
 
 pub mod bindings;
 
 use std::mem;
 use std::slice;
 use ndarray::Array2;
-//use image::Rgb;
 
-//pub type Pixel = Rgb<u8>;
 #[derive(Copy, Clone, PartialEq, Default, Debug)]
 pub struct Pixel {
     r: u8,
@@ -114,25 +109,28 @@ pub fn compress(image: &Array2<Pixel>) -> Result<Vec<u8>, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use std::mem;
     use std::slice;
+    use std::io;
+    use std::io::prelude::*;
+    use std::fs::File;
+    use std::path::Path;
 
     #[test]
     fn test_decompress() {
-        let jpeg = fs::read("test/in.jpg").unwrap();
+        let jpeg = read("test/in.jpg").unwrap();
         let image = decompress(&jpeg).unwrap();
         assert_eq!(image.shape()[1], 75);
         assert_eq!(image.shape()[0], 50);
         assert_eq!(image[[10, 1]], Pixel { r: 189, g: 134, b: 95});
         assert_eq!(image[[1, 20]], Pixel { r: 203, g: 149, b: 103});
-        let expected = fs::read("test/out.dat").unwrap();
+        let expected = read("test/out.dat").unwrap();
         assert_eq!(slice_as_bytes(image.view().into_slice().unwrap()), &expected[..]);
     }
 
     #[test]
     fn test_compress() {
-        let uncompressed = fs::read("test/out.dat").unwrap();
+        let uncompressed = read("test/out.dat").unwrap();
         let uncompressed: Vec<Pixel> = unsafe {
             slice::from_raw_parts(
                 uncompressed.as_ptr() as *const Pixel,
@@ -141,7 +139,13 @@ mod tests {
         let image = Array2::from_shape_vec((50, 75), uncompressed).unwrap();
         let jpeg = compress(&image).unwrap();
         assert_eq!(jpeg.len(), 2512);
-        let expected = fs::read("test/out.jpg").unwrap();
+        let expected = read("test/out.jpg").unwrap();
         assert_eq!(jpeg, expected);
+    }
+
+    fn read<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        File::open(path)?.read_to_end(&mut bytes)?;
+        Ok(bytes)
     }
 }
