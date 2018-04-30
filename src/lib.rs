@@ -1,9 +1,12 @@
 extern crate ndarray;
+extern crate failure;
+#[macro_use] extern crate failure_derive;
 
 pub mod bindings;
 
 use std::mem;
 use std::slice;
+use std::fmt;
 use ndarray::Array2;
 
 #[derive(Copy, Clone, PartialEq, Default, Debug)]
@@ -13,7 +16,29 @@ pub struct Pixel {
     pub b: u8,
 }
 
-pub fn decompress(compressed_image: &[u8]) -> Result<Array2<Pixel>, ()> {
+#[derive(Debug, Fail)]
+pub struct LibError {
+    pub code: i32
+}
+
+impl fmt::Display for LibError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "turbojpeg error {}", self.code)
+    }
+}
+
+macro_rules! try_unsafe {
+    ($body:expr) => {
+        let res = unsafe {
+            $body
+        };
+        if res != 0 {
+            return Err(LibError { code: res });
+        }
+    }
+}
+
+pub fn decompress(compressed_image: &[u8]) -> Result<Array2<Pixel>, LibError> {
     let decompressor = unsafe {
         bindings::tjInitDecompress()
     };
@@ -23,18 +48,15 @@ pub fn decompress(compressed_image: &[u8]) -> Result<Array2<Pixel>, ()> {
     let mut height = 0;
     let mut colorspace = 0;
     
-    unsafe {
-        let res = bindings::tjDecompressHeader3(
-            decompressor,
-            compressed_image.as_ptr(),
-            compressed_image.len() as ::std::os::raw::c_ulong,
-            &mut width,
-            &mut height,
-            &mut subsamp,
-            &mut colorspace
-        );
-        assert_eq!(res, 0);
-    }
+    try_unsafe!(bindings::tjDecompressHeader3(
+        decompressor,
+        compressed_image.as_ptr(),
+        compressed_image.len() as ::std::os::raw::c_ulong,
+        &mut width,
+        &mut height,
+        &mut subsamp,
+        &mut colorspace
+    ));
 
     let buf_len = width as usize * height as usize;
     let mut pixels: Vec<Pixel> = Vec::with_capacity(buf_len);
@@ -42,21 +64,17 @@ pub fn decompress(compressed_image: &[u8]) -> Result<Array2<Pixel>, ()> {
         pixels.set_len(buf_len);
     }
 
-    unsafe {
-        let res = bindings::tjDecompress2(
-            decompressor,
-            compressed_image.as_ptr(),
-            compressed_image.len() as ::std::os::raw::c_ulong,
-            pixels.as_mut_ptr() as *mut u8,
-            width,
-            0, // pitch
-            height,
-            bindings::TJPF::TJPF_RGB as ::std::os::raw::c_int,
-            bindings::TJFLAG_FASTDCT as ::std::os::raw::c_int);
-        assert_eq!(res, 0);
-        let res = bindings::tjDestroy(decompressor);
-        assert_eq!(res, 0);
-    }
+    try_unsafe!(bindings::tjDecompress2(
+        decompressor,
+        compressed_image.as_ptr(),
+        compressed_image.len() as ::std::os::raw::c_ulong,
+        pixels.as_mut_ptr() as *mut u8,
+        width,
+        0, // pitch
+        height,
+        bindings::TJPF::TJPF_RGB as ::std::os::raw::c_int,
+        bindings::TJFLAG_FASTDCT as ::std::os::raw::c_int));
+    try_unsafe!(bindings::tjDestroy(decompressor));
 
     Ok(Array2::from_shape_vec((height as usize, width as usize), pixels).unwrap())
 }
@@ -70,7 +88,7 @@ fn slice_as_bytes<T>(slice: &[T]) -> &[u8] {
     }
 }
 
-pub fn compress(image: &Array2<Pixel>) -> Result<Vec<u8>, ()> {
+pub fn compress(image: &Array2<Pixel>) -> Result<Vec<u8>, LibError> {
     let subsamp = bindings::TJSAMP::TJSAMP_444 as ::std::os::raw::c_int;
     let height = image.shape()[0];
     let width = image.shape()[1];
@@ -83,23 +101,21 @@ pub fn compress(image: &Array2<Pixel>) -> Result<Vec<u8>, ()> {
     };
     let mut buf: Vec<u8> = Vec::with_capacity(compressed_image_len as usize);
     let mut compressed_image: *mut u8 = buf.as_mut_ptr();
+    let jpeg_compressor = unsafe { bindings::tjInitCompress() };
+    try_unsafe!(bindings::tjCompress2(
+        jpeg_compressor,
+        slice_as_bytes(image.view().into_slice().unwrap()).as_ptr(),
+        width as i32,
+        pitch_bytes as i32,
+        height as i32,
+        bindings::TJPF::TJPF_RGB as ::std::os::raw::c_int,
+        &mut compressed_image,
+        &mut compressed_image_len,
+        subsamp,
+        100, // quality
+        (bindings::TJFLAG_FASTDCT | bindings::TJFLAG_NOREALLOC) as ::std::os::raw::c_int));
+    try_unsafe!(bindings::tjDestroy(jpeg_compressor));
     unsafe {
-        let jpeg_compressor = bindings::tjInitCompress();
-        let res = bindings::tjCompress2(
-            jpeg_compressor,
-            slice_as_bytes(image.view().into_slice().unwrap()).as_ptr(),
-            width as i32,
-            pitch_bytes as i32,
-            height as i32,
-            bindings::TJPF::TJPF_RGB as ::std::os::raw::c_int,
-            &mut compressed_image,
-            &mut compressed_image_len,
-            subsamp,
-            100, // quality
-            (bindings::TJFLAG_FASTDCT | bindings::TJFLAG_NOREALLOC) as ::std::os::raw::c_int);
-        assert_eq!(res, 0);
-        let res = bindings::tjDestroy(jpeg_compressor);
-        assert_eq!(res, 0);
         buf.set_len(compressed_image_len as usize);
     }
     buf.shrink_to_fit();

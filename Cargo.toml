@@ -5,6 +5,8 @@ build = "build.rs"
 
 [dependencies]
 ndarray = "0.10"
+failure = "0.1"
+failure_derive = "0.1"
 
 [build-dependencies]
 pkg-config = "0.3"
